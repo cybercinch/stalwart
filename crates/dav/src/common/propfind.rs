@@ -1258,7 +1258,10 @@ async fn get(
                         total_changes += document_ids.len() as usize;
                     } else {
                         total_changes += changes.len() as usize;
-                        *document_ids = Some(changes);
+                        // Don't replace None with empty bitmap - preserve full access
+                        if !changes.is_empty() {
+                            *document_ids = Some(changes);
+                        }
                     }
                 }
             } else {
@@ -1281,7 +1284,10 @@ async fn get(
                     total_changes += document_ids.len() as usize;
                 } else {
                     total_changes += changes.len() as usize;
-                    display_containers = Some(changes);
+                    // Don't replace None with empty bitmap - preserve full access
+                    if !changes.is_empty() {
+                        display_containers = Some(changes);
+                    }
                 }
             }
 
