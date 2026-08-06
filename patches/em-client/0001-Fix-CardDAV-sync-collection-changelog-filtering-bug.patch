@@ -1,0 +1,50 @@
+From c8f9caa9f465b5becec2c81b2664dbd1fb053c78 Mon Sep 17 00:00:00 2001
+From: Aaron Guise <aaron@guise.net.nz>
+Date: Sun, 7 Sep 2025 11:23:33 +1200
+Subject: [PATCH 1/2] Fix CardDAV sync-collection changelog filtering bug
+
+The sync-collection was replacing None document_ids and display_containers with
+empty RoaringBitmap, which incorrectly filtered out all results when no changes
+were found in the current change set.
+
+This caused CardDAV sync-collection requests (like those from eM Client) to return
+empty responses even when there were contacts that should be included, because the
+empty bitmap would intersect with any subsequent change set and produce no results.
+
+Fix: Don't replace None with empty bitmap - preserve full access by only setting
+Some(changes) when the changes bitmap is not empty.
+---
+ crates/dav/src/common/propfind.rs | 10 ++++++++--
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/crates/dav/src/common/propfind.rs b/crates/dav/src/common/propfind.rs
+index 55256514..e5e7ce42 100644
+--- a/crates/dav/src/common/propfind.rs
++++ b/crates/dav/src/common/propfind.rs
+@@ -1258,7 +1258,10 @@ async fn get(
+                         total_changes += document_ids.len() as usize;
+                     } else {
+                         total_changes += changes.len() as usize;
+-                        *document_ids = Some(changes);
++                        // Don't replace None with empty bitmap - preserve full access
++                        if !changes.is_empty() {
++                            *document_ids = Some(changes);
++                        }
+                     }
+                 }
+             } else {
+@@ -1281,7 +1284,10 @@ async fn get(
+                     total_changes += document_ids.len() as usize;
+                 } else {
+                     total_changes += changes.len() as usize;
+-                    display_containers = Some(changes);
++                    // Don't replace None with empty bitmap - preserve full access
++                    if !changes.is_empty() {
++                        display_containers = Some(changes);
++                    }
+                 }
+             }
+ 
+-- 
+2.43.0
+
