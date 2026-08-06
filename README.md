@@ -25,6 +25,14 @@
 > If you find another bug, fix it as a topic branch off `main` (`just feature <name>`) and PR it to
 > upstream first — if it's accepted, `fork/stable` picks it up automatically on the next sync; if not,
 > `just land-fork <commit>` folds it into this fork's patch stack.
+>
+> **Docker images:** multi-arch (`amd64`/`arm64`) images are published to
+> [`docker.io/cybercinch/stalwart`](https://hub.docker.com/r/cybercinch/stalwart), tagged `:latest`
+> and `:<stalwart-version>` (e.g. `:0.16.16`). `just docker-publish` cross-compiles both arches
+> natively via [`build.sh`](./build.sh) (no in-container/QEMU Rust build) and assembles them into
+> [`Dockerfile.fast`](./Dockerfile.fast) images before pushing a combined manifest list. Copy
+> [`.env.example`](./.env.example) to `.env` with your Docker Hub credentials first — the Justfile
+> loads it automatically.
 
 <p align="center">
     <a href="https://stalw.art">
