@@ -1,3 +1,31 @@
+> ## 🍴 About this fork
+>
+> This is a fork of [stalwartlabs/stalwart](https://github.com/stalwartlabs/stalwart) that carries a
+> small set of CardDAV/CalDAV compatibility fixes for **eM Client** that were not accepted upstream.
+> If you hit the same eM Client sync issues, this branch has you covered.
+>
+> **Branch layout:**
+>
+> | Branch | Purpose |
+> | --- | --- |
+> | [`main`](https://github.com/cybercinch/stalwart/tree/main) | Clean, unmodified mirror of upstream `main`. Never committed to directly — kept as the base for anything intended to be PR'd upstream. |
+> | [`fork/stable`](https://github.com/cybercinch/stalwart/tree/fork/stable) **(default branch)** | `main` + this fork's patch stack. This is what we build and deploy. |
+>
+> **What's patched (`patches/em-client/`):**
+> - Fix CardDAV sync-collection changelog filtering bug — `None` document IDs were being replaced
+>   with an empty bitmap, silently emptying valid sync results.
+> - Fix CardDAV sync-collection compatibility with eM Client — eM Client sends `Depth: 0` on
+>   sync-collection requests but expects `Depth: 1` behavior (child resources included).
+>
+> **Keeping this in sync with upstream:** see the [`Justfile`](./Justfile) — `just sync` fast-forwards
+> `main` to the latest upstream release tag, rebases `fork/stable` on top, compile-checks, and
+> re-exports the patch files. Run `just --list` for all available recipes (`feature`, `land-fork`,
+> `apply-patches`, etc).
+>
+> If you find another bug, fix it as a topic branch off `main` (`just feature <name>`) and PR it to
+> upstream first — if it's accepted, `fork/stable` picks it up automatically on the next sync; if not,
+> `just land-fork <commit>` folds it into this fork's patch stack.
+
 <p align="center">
     <a href="https://stalw.art">
     <img src="./img/logo-red.svg" height="150">
