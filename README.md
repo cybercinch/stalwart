@@ -1,3 +1,42 @@
+> ## 🍴 About this fork
+>
+> This is a fork of [stalwartlabs/stalwart](https://github.com/stalwartlabs/stalwart) that carries a
+> small stack of fixes not (yet, or ever) accepted upstream. It previously carried a set of
+> CardDAV/CalDAV compatibility patches for eM Client; those are no longer needed (fixed either
+> upstream or in eM Client itself) and have been dropped from the stack.
+>
+> **Branch layout:**
+>
+> | Branch | Purpose |
+> | --- | --- |
+> | [`main`](https://github.com/cybercinch/stalwart/tree/main) | Clean, unmodified mirror of upstream `main`. Never committed to directly — kept as the base for anything intended to be PR'd upstream. |
+> | [`fork/stable`](https://github.com/cybercinch/stalwart/tree/fork/stable) **(default branch)** | `main` + this fork's patch stack. This is what we build and deploy. |
+>
+> **What's patched (`patches/fork-stable/`):**
+> - Only fetch the raw message blob for `Email/get`'s `attachments` property when the caller's
+>   `bodyProperties` also asks for raw `Header`/`Headers`. The metadata fields a mail client
+>   normally wants (name/type/size/disposition/blobId/etc) already come from the cheap, pre-parsed
+>   part structure - the unconditional raw-blob fetch was doing a full sequential fetch per message
+>   from the blob store for every result, which is expensive on a remote (e.g. S3-compatible)
+>   backend. Not yet submitted upstream / pending a decision on acceptance.
+>
+> **Keeping this in sync with upstream:** see the [`Justfile`](./Justfile) — `just sync` fast-forwards
+> `main` to the latest upstream release tag, rebases `fork/stable` on top, compile-checks, and
+> re-exports the patch files. Run `just --list` for all available recipes (`feature`, `land-fork`,
+> `apply-patches`, etc).
+>
+> If you find another bug, fix it as a topic branch off `main` (`just feature <name>`) and PR it to
+> upstream first — if it's accepted, `fork/stable` picks it up automatically on the next sync; if not,
+> `just land-fork <commit>` folds it into this fork's patch stack.
+>
+> **Docker images:** multi-arch (`amd64`/`arm64`) images are published to
+> [`docker.io/cybercinch/stalwart`](https://hub.docker.com/r/cybercinch/stalwart), tagged `:latest`
+> and `:<stalwart-version>` (e.g. `:0.16.16`). `just docker-publish` cross-compiles both arches
+> natively via [`build.sh`](./build.sh) (no in-container/QEMU Rust build) and assembles them into
+> [`Dockerfile.fast`](./Dockerfile.fast) images before pushing a combined manifest list; requires
+> `docker` already authenticated to `docker.io`. `just publish-release` does that and then tags +
+> cuts a GitHub release (`just release` alone just does the tag/release step).
+
 <p align="center">
     <a href="https://stalw.art">
     <img src="./img/logo-red.svg" height="150">

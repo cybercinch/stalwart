@@ -1,0 +1,17 @@
+# The default `cross` images are Ubuntu 16.04 (libclang 3.8), too old for
+# librocksdb-sys's bindgen. The `:main` tag images are Ubuntu 24.04 and carry
+# libclang-19, matching what the official Dockerfile installs.
+[target.x86_64-unknown-linux-gnu]
+image = "ghcr.io/cross-rs/x86_64-unknown-linux-gnu:main"
+pre-build = ["apt-get update && apt-get install --assume-yes libclang-19-dev"]
+
+[target.x86_64-unknown-linux-gnu.env]
+volumes = []
+passthrough = ["LIBCLANG_PATH=/usr/lib/llvm-19/lib"]
+
+[target.aarch64-unknown-linux-gnu]
+image = "ghcr.io/cross-rs/aarch64-unknown-linux-gnu:main"
+pre-build = ["apt-get update && apt-get install --assume-yes libclang-19-dev"]
+
+[target.aarch64-unknown-linux-gnu.env]
+passthrough = ["LIBCLANG_PATH=/usr/lib/llvm-19/lib"]
