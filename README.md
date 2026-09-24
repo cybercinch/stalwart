@@ -33,9 +33,9 @@
 > [`docker.io/cybercinch/stalwart`](https://hub.docker.com/r/cybercinch/stalwart), tagged `:latest`
 > and `:<stalwart-version>` (e.g. `:0.16.16`). `just docker-publish` cross-compiles both arches
 > natively via [`build.sh`](./build.sh) (no in-container/QEMU Rust build) and assembles them into
-> [`Dockerfile.fast`](./Dockerfile.fast) images before pushing a combined manifest list. Copy
-> [`.env.example`](./.env.example) to `.env` with your Docker Hub credentials first — the Justfile
-> loads it automatically.
+> [`Dockerfile.fast`](./Dockerfile.fast) images before pushing a combined manifest list; requires
+> `docker` already authenticated to `docker.io`. `just publish-release` does that and then tags +
+> cuts a GitHub release (`just release` alone just does the tag/release step).
 
 <p align="center">
     <a href="https://stalw.art">

@@ -8,3 +8,26 @@
 
 !Cargo.lock
 !Cargo.toml
+
+// Dockerfile.fast COPYs the pre-built binary in rather than building it
+// in-container (see build.sh/Justfile) - traverse into target/ far enough
+// to reach it. Intermediate dirs must be allowed explicitly (gitignore-style
+// negation can't re-include a file whose parent dir is still excluded).
+!target
+target/*
+!target/x86_64-unknown-linux-gnu
+!target/aarch64-unknown-linux-gnu
+target/x86_64-unknown-linux-gnu/*
+target/aarch64-unknown-linux-gnu/*
+!target/x86_64-unknown-linux-gnu/release
+!target/x86_64-unknown-linux-gnu/debug
+!target/aarch64-unknown-linux-gnu/release
+!target/aarch64-unknown-linux-gnu/debug
+target/x86_64-unknown-linux-gnu/release/*
+target/x86_64-unknown-linux-gnu/debug/*
+target/aarch64-unknown-linux-gnu/release/*
+target/aarch64-unknown-linux-gnu/debug/*
+!target/x86_64-unknown-linux-gnu/release/stalwart
+!target/x86_64-unknown-linux-gnu/debug/stalwart
+!target/aarch64-unknown-linux-gnu/release/stalwart
+!target/aarch64-unknown-linux-gnu/debug/stalwart

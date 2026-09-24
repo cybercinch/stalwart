@@ -2,13 +2,15 @@
 set -euo pipefail
 
 # Stalwart Fast Cross-Compilation Build Script
-# This script cross-compiles the Rust binaries outside of Docker for faster builds
+# This script cross-compiles the stalwart binary outside of Docker for faster builds
 
 # Configuration
 TARGET_ARCH="${TARGET_ARCH:-x86_64-unknown-linux-gnu}"
 BUILD_TYPE="${BUILD_TYPE:-release}"
-# Note: 'rocks' feature removed due to libclang compatibility issues
-FEATURES="${FEATURES:-sqlite postgres mysql elastic s3 redis azure nats enterprise}"
+# Note: cross-compiling 'rocks' requires the newer libclang provided by the
+# ':main'-tagged cross images (see Cross.toml) - the default cross images
+# ship libclang 3.8.x, too old for librocksdb-sys's bindgen.
+FEATURES="${FEATURES:-sqlite postgres mysql rocks s3 redis azure nats enterprise}"
 
 # Colors for output
 RED='\033[0;31m'
@@ -48,25 +50,16 @@ log_info "Using libclang from: $LIBCLANG_PATH"
 # Check if cross is available for more reliable cross-compilation
 if command -v cross &> /dev/null && docker info &> /dev/null 2>&1; then
     log_info "Using 'cross' for reliable cross-compilation"
-    
-    # Build stalwart main binary
+
     log_info "Building stalwart binary with cross..."
     if [[ "$BUILD_TYPE" == "release" ]]; then
         cross build --target "$TARGET_ARCH" --release -p stalwart --no-default-features --features "$FEATURES"
     else
         cross build --target "$TARGET_ARCH" -p stalwart --no-default-features --features "$FEATURES"
     fi
-
-    # Build stalwart-cli binary
-    log_info "Building stalwart-cli binary with cross..."
-    if [[ "$BUILD_TYPE" == "release" ]]; then
-        cross build --target "$TARGET_ARCH" --release -p stalwart-cli
-    else
-        cross build --target "$TARGET_ARCH" -p stalwart-cli
-    fi
 else
     log_info "Using native cargo (install 'cross' for better cross-compilation)"
-    
+
     # Ensure target is installed
     log_info "Installing Rust target $TARGET_ARCH"
     rustup target add "$TARGET_ARCH"
@@ -92,55 +85,27 @@ else
             ;;
     esac
 
-    # Build stalwart main binary
     log_info "Building stalwart binary..."
     if [[ "$BUILD_TYPE" == "release" ]]; then
         cargo build --target "$TARGET_ARCH" --release -p stalwart --no-default-features --features "$FEATURES"
     else
         cargo build --target "$TARGET_ARCH" -p stalwart --no-default-features --features "$FEATURES"
     fi
-
-    # Build stalwart-cli binary
-    log_info "Building stalwart-cli binary..."
-    if [[ "$BUILD_TYPE" == "release" ]]; then
-        cargo build --target "$TARGET_ARCH" --release -p stalwart-cli
-    else
-        cargo build --target "$TARGET_ARCH" -p stalwart-cli
-    fi
 fi
 
 # Set build directory
 BUILD_DIR="target/$TARGET_ARCH/$BUILD_TYPE"
 
-# Verify binaries exist
+# Verify binary exists
 if [[ ! -f "$BUILD_DIR/stalwart" ]]; then
     log_error "stalwart binary not found at $BUILD_DIR/stalwart"
     exit 1
 fi
 
-if [[ ! -f "$BUILD_DIR/stalwart-cli" ]]; then
-    log_error "stalwart-cli binary not found at $BUILD_DIR/stalwart-cli"
-    exit 1
-fi
-
-# Get binary sizes
 STALWART_SIZE=$(du -h "$BUILD_DIR/stalwart" | cut -f1)
-CLI_SIZE=$(du -h "$BUILD_DIR/stalwart-cli" | cut -f1)
 
 log_info "Build completed successfully!"
-log_info "Binaries location: $BUILD_DIR/"
-log_info "- stalwart: $STALWART_SIZE"
-log_info "- stalwart-cli: $CLI_SIZE"
-
-# Build Docker image if requested
-if [[ "${BUILD_DOCKER:-}" == "true" ]]; then
-    log_info "Building Docker image..."
-    docker build -f Dockerfile.fast --build-arg TARGET_ARCH="$TARGET_ARCH" --build-arg BUILD_TYPE="$BUILD_TYPE" -t stalwart:fast .
-    log_info "Docker image 'stalwart:fast' built successfully!"
-fi
-
-log_info "To build Docker image manually, run:"
-log_info "docker build -f Dockerfile.fast --build-arg TARGET_ARCH=$TARGET_ARCH --build-arg BUILD_TYPE=$BUILD_TYPE -t stalwart:fast ."
+log_info "Binary location: $BUILD_DIR/stalwart ($STALWART_SIZE)"
 
 # Install cross if not available
 if ! command -v cross &> /dev/null; then

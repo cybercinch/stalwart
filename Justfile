@@ -1,5 +1,3 @@
-set dotenv-load := true
-
 upstream_remote := "upstream"
 main_branch := "main"
 fork_branch := "fork/stable"
@@ -78,6 +76,17 @@ rust-target arch:
         *) echo "unknown arch '{{arch}}' (expected amd64 or arm64)" >&2; exit 1 ;; \
     esac
 
+# Fast local dev build: native cargo (no cross/Docker), debug profile, sqlite
+# only (skips the slow rocks/postgres/mysql/s3/redis/azure/nats backends) -
+# for "does my patch compile/work" iteration, not for the shippable binary.
+# Override features="..." to pull in another backend you're actually testing.
+dev-build features="sqlite":
+    cargo build -p stalwart --no-default-features --features {{features}}
+
+# Fast compile-error check only, no codegen/link - quicker than dev-build.
+dev-check features="sqlite":
+    cargo check -p stalwart --no-default-features --features {{features}}
+
 # Cross-compile the stalwart + stalwart-cli binaries natively for one arch
 # (amd64/arm64) via build.sh, instead of building inside Docker/QEMU.
 build-arch arch:
@@ -100,18 +109,41 @@ docker-build-arch arch version:
 # Full multi-arch publish: cross-compile amd64+arm64 natively (build.sh),
 # build/push each arch's image from Dockerfile.fast, then assemble+push the
 # combined :latest and :<stalwart-version> manifest lists to
-# docker.io/cybercinch/stalwart. Reads DOCKERHUB_USERNAME / DOCKERHUB_TOKEN
-# from a local .env file (see .env.example) via dotenv-load.
-docker-publish: build-multiarch
+# docker.io/cybercinch/stalwart. Assumes `docker` is already authenticated
+# to docker.io (e.g. an existing ~/.docker/config.json or credential helper).
+docker-publish: 
     #!/usr/bin/env bash
     set -euo pipefail
     version=$(just stalwart-version)
-    : "${DOCKERHUB_USERNAME:?Set DOCKERHUB_USERNAME in .env}"
-    : "${DOCKERHUB_TOKEN:?Set DOCKERHUB_TOKEN in .env}"
-    echo "$DOCKERHUB_TOKEN" | docker login docker.io -u "$DOCKERHUB_USERNAME" --password-stdin
     just docker-build-arch amd64 "$version"
     just docker-build-arch arm64 "$version"
     docker buildx imagetools create \
       -t {{docker_image}}:latest -t {{docker_image}}:"$version" \
       {{docker_image}}:"$version"-amd64 {{docker_image}}:"$version"-arm64
     echo "Published {{docker_image}}:latest and {{docker_image}}:$version (amd64+arm64)"
+
+# Tag the current fork/stable commit and cut a GitHub release. Revision
+# auto-increments per stalwart version (v<version>-emclient.<N>) - bump it
+# when the patch stack changes without a base version bump. Pass rev=N to
+# pin explicitly. Requires `gh` to be authenticated.
+release rev="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    version=$(just stalwart-version)
+    rev="{{rev}}"
+    if [ -z "$rev" ]; then
+      last=$(git tag -l "v${version}-emclient.*" | sed -E 's/.*emclient\.//' | sort -n | tail -1)
+      rev=$(( ${last:-0} + 1 ))
+    fi
+    tag="v${version}-emclient.${rev}"
+    if ! git rev-parse "$tag" >/dev/null 2>&1; then
+      git tag -a "$tag" -m "Stalwart ${version} + eM Client CardDAV fixes (rev ${rev})"
+    fi
+    git push origin "$tag" || true
+    gh release create "$tag" -R cybercinch/stalwart \
+      --title "$tag" \
+      --notes "Stalwart ${version} rebased on upstream, with fix for attachment body handling. Docker: {{docker_image}}:${version} / :latest (linux/amd64, linux/arm64)."
+    echo "Released $tag"
+
+# Full release: build+push multi-arch docker images, then tag + GitHub release
+publish-release rev="": docker-publish (release rev)

@@ -20,7 +20,6 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
 ARG TARGET_ARCH
 ARG BUILD_TYPE
 COPY --chmod=0755 target/${TARGET_ARCH}/${BUILD_TYPE}/stalwart /usr/local/bin/stalwart
-COPY --chmod=0755 target/${TARGET_ARCH}/${BUILD_TYPE}/stalwart-cli /usr/local/bin/stalwart-cli
 RUN setcap 'cap_net_bind_service=+ep' /usr/local/bin/stalwart
 
 USER stalwart

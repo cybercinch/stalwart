@@ -134,17 +134,34 @@ impl EmailGet for Server {
             not_found: not_found_ids,
         };
 
-        // Check if we need to fetch the raw headers or body
+        // Check if we need to fetch the raw headers or body.
+        //
+        // `BodyValues` always needs it - it decodes actual body content from
+        // the raw bytes. `TextBody`/`HtmlBody`/`Attachments`/`BodyStructure`
+        // only return metadata built via `ToBodyPart::to_body_part` from the
+        // already-loaded, cheap archived part structure (name/type/size/
+        // disposition/blobId/etc - see `body.rs`); none of that reads
+        // `raw_message` unless the caller's `body_properties` also asked for
+        // the raw `Header`/`Headers` passthrough. Treating those four the
+        // same as `BodyValues` meant every `Attachments`-only request (e.g.
+        // a mail client showing attachment chips on a list of messages)
+        // fetched the full raw message from the blob store for every result,
+        // even though nothing about the response needed it - expensive on
+        // any remote blob backend and unnecessary the common case.
+        let needs_raw_headers = body_properties.iter().any(|property| {
+            matches!(property, EmailProperty::Header(_) | EmailProperty::Headers)
+        });
         let mut needs_body = false;
         for property in &properties {
-            if matches!(
-                property,
-                EmailProperty::BodyValues
-                    | EmailProperty::TextBody
-                    | EmailProperty::HtmlBody
-                    | EmailProperty::Attachments
-                    | EmailProperty::BodyStructure
-            ) {
+            if matches!(property, EmailProperty::BodyValues)
+                || (matches!(
+                    property,
+                    EmailProperty::TextBody
+                        | EmailProperty::HtmlBody
+                        | EmailProperty::Attachments
+                        | EmailProperty::BodyStructure
+                ) && needs_raw_headers)
+            {
                 needs_body = true;
                 break;
             }
