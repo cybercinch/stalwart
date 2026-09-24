@@ -1,0 +1,278 @@
+From 0ff9d3c340fccf55cdd5bb19f0fd80d0e8f4f9ab Mon Sep 17 00:00:00 2001
+From: Aaron Guise <aaron@guise.net.nz>
+Date: Thu, 6 Aug 2026 14:04:57 +1200
+Subject: [PATCH 2/5] docs(fork): document branch strategy and add patch-sync
+ tooling :memo:
+
+Adds a Justfile to rebase the eM Client CardDAV patch stack onto new
+upstream releases, exports the patches for review, and documents the
+main / fork/stable branch split in the README so main can stay a clean
+mirror for upstream PRs.
+---
+ Justfile                                      | 61 +++++++++++++
+ README.md                                     | 28 ++++++
+ ...c-collection-changelog-filtering-bug.patch | 50 +++++++++++
+ ...-collection-compatibility-with-eM-Cl.patch | 90 +++++++++++++++++++
+ 4 files changed, 229 insertions(+)
+ create mode 100644 Justfile
+ create mode 100644 patches/em-client/0001-Fix-CardDAV-sync-collection-changelog-filtering-bug.patch
+ create mode 100644 patches/em-client/0002-Fix-CardDAV-sync-collection-compatibility-with-eM-Cl.patch
+
+diff --git a/Justfile b/Justfile
+new file mode 100644
+index 000000000..9a151bac7
+--- /dev/null
++++ b/Justfile
+@@ -0,0 +1,61 @@
++upstream_remote := "upstream"
++main_branch := "main"
++fork_branch := "fork/stable"
++patches_dir := "patches/em-client"
++
++# Fetch latest upstream tags/branches
++fetch:
++    git fetch {{upstream_remote}} --tags --prune
++
++# Show the latest upstream v0.16.x tag
++latest-tag:
++    git tag -l 'v0.16.*' | sort -V | tail -1
++
++# Fast-forward main to upstream/main. Never commit to main directly - it stays
++# a clean mirror so it can be used as the base for anything bound for an
++# upstream PR.
++sync-main: fetch
++    git checkout {{main_branch}}
++    git merge --ff-only {{upstream_remote}}/main
++    @echo "{{main_branch}} is now at $(git rev-parse --short {{main_branch}}). Push to origin/{{main_branch}} when ready."
++
++# Cut a topic branch off main for something you intend to PR upstream.
++# Keeping it based on main (not fork/stable) keeps the diff minimal and
++# review-friendly.
++feature name:
++    git checkout {{main_branch}}
++    git checkout -b {{name}} {{main_branch}}
++
++# Rebase the fork branch (main + our patch stack) onto a given upstream ref
++# (default: latest v0.16.x tag)
++rebase ref=`git tag -l 'v0.16.*' | sort -V | tail -1`:
++    git checkout {{fork_branch}}
++    git rebase --onto {{ref}} {{upstream_remote}}/main {{fork_branch}}
++    @echo "Rebased {{fork_branch}} onto {{ref}}. Run 'just check' then 'just export-patches'."
++
++# Compile-check the affected crate after a rebase
++check:
++    cargo check -p dav
++
++# Export the current patch stack to patches/em-client/*.patch for review/vendoring
++export-patches:
++    mkdir -p {{patches_dir}}
++    rm -f {{patches_dir}}/*.patch
++    git format-patch {{upstream_remote}}/main..{{fork_branch}} -o {{patches_dir}}
++
++# Rebuild the fork branch from scratch on top of a fresh ref using the exported patches
++apply-patches ref=`git tag -l 'v0.16.*' | sort -V | tail -1`:
++    git checkout -B {{fork_branch}} {{ref}}
++    git am {{patches_dir}}/*.patch
++
++# Cherry-pick a commit (e.g. from a declined/pending upstream PR branch) into
++# the fork's patch stack, then re-export so patches/ stays in sync.
++land-fork commit:
++    git checkout {{fork_branch}}
++    git cherry-pick {{commit}}
++    just export-patches
++
++# Full cycle: fast-forward main, rebase the fork branch onto the latest
++# v0.16.x tag, check, re-export patches
++sync: sync-main rebase check export-patches
++    @echo "{{fork_branch}} is now current with $(just latest-tag)."
+diff --git a/README.md b/README.md
+index 1fe48426f..464a67bf1 100644
+--- a/README.md
++++ b/README.md
+@@ -1,3 +1,31 @@
++> ## 🍴 About this fork
++>
++> This is a fork of [stalwartlabs/stalwart](https://github.com/stalwartlabs/stalwart) that carries a
++> small set of CardDAV/CalDAV compatibility fixes for **eM Client** that were not accepted upstream.
++> If you hit the same eM Client sync issues, this branch has you covered.
++>
++> **Branch layout:**
++>
++> | Branch | Purpose |
++> | --- | --- |
++> | [`main`](https://github.com/cybercinch/stalwart/tree/main) | Clean, unmodified mirror of upstream `main`. Never committed to directly — kept as the base for anything intended to be PR'd upstream. |
++> | [`fork/stable`](https://github.com/cybercinch/stalwart/tree/fork/stable) **(default branch)** | `main` + this fork's patch stack. This is what we build and deploy. |
++>
++> **What's patched (`patches/em-client/`):**
++> - Fix CardDAV sync-collection changelog filtering bug — `None` document IDs were being replaced
++>   with an empty bitmap, silently emptying valid sync results.
++> - Fix CardDAV sync-collection compatibility with eM Client — eM Client sends `Depth: 0` on
++>   sync-collection requests but expects `Depth: 1` behavior (child resources included).
++>
++> **Keeping this in sync with upstream:** see the [`Justfile`](./Justfile) — `just sync` fast-forwards
++> `main` to the latest upstream release tag, rebases `fork/stable` on top, compile-checks, and
++> re-exports the patch files. Run `just --list` for all available recipes (`feature`, `land-fork`,
++> `apply-patches`, etc).
++>
++> If you find another bug, fix it as a topic branch off `main` (`just feature <name>`) and PR it to
++> upstream first — if it's accepted, `fork/stable` picks it up automatically on the next sync; if not,
++> `just land-fork <commit>` folds it into this fork's patch stack.
++
+ <p align="center">
+     <a href="https://stalw.art">
+     <img src="./img/logo-red.svg" height="150">
+diff --git a/patches/em-client/0001-Fix-CardDAV-sync-collection-changelog-filtering-bug.patch b/patches/em-client/0001-Fix-CardDAV-sync-collection-changelog-filtering-bug.patch
+new file mode 100644
+index 000000000..af890bddb
+--- /dev/null
++++ b/patches/em-client/0001-Fix-CardDAV-sync-collection-changelog-filtering-bug.patch
+@@ -0,0 +1,50 @@
++From c8f9caa9f465b5becec2c81b2664dbd1fb053c78 Mon Sep 17 00:00:00 2001
++From: Aaron Guise <aaron@guise.net.nz>
++Date: Sun, 7 Sep 2025 11:23:33 +1200
++Subject: [PATCH 1/2] Fix CardDAV sync-collection changelog filtering bug
++
++The sync-collection was replacing None document_ids and display_containers with
++empty RoaringBitmap, which incorrectly filtered out all results when no changes
++were found in the current change set.
++
++This caused CardDAV sync-collection requests (like those from eM Client) to return
++empty responses even when there were contacts that should be included, because the
++empty bitmap would intersect with any subsequent change set and produce no results.
++
++Fix: Don't replace None with empty bitmap - preserve full access by only setting
++Some(changes) when the changes bitmap is not empty.
++---
++ crates/dav/src/common/propfind.rs | 10 ++++++++--
++ 1 file changed, 8 insertions(+), 2 deletions(-)
++
++diff --git a/crates/dav/src/common/propfind.rs b/crates/dav/src/common/propfind.rs
++index 55256514..e5e7ce42 100644
++--- a/crates/dav/src/common/propfind.rs
+++++ b/crates/dav/src/common/propfind.rs
++@@ -1258,7 +1258,10 @@ async fn get(
++                         total_changes += document_ids.len() as usize;
++                     } else {
++                         total_changes += changes.len() as usize;
++-                        *document_ids = Some(changes);
+++                        // Don't replace None with empty bitmap - preserve full access
+++                        if !changes.is_empty() {
+++                            *document_ids = Some(changes);
+++                        }
++                     }
++                 }
++             } else {
++@@ -1281,7 +1284,10 @@ async fn get(
++                     total_changes += document_ids.len() as usize;
++                 } else {
++                     total_changes += changes.len() as usize;
++-                    display_containers = Some(changes);
+++                    // Don't replace None with empty bitmap - preserve full access
+++                    if !changes.is_empty() {
+++                        display_containers = Some(changes);
+++                    }
++                 }
++             }
++ 
++-- 
++2.43.0
++
+diff --git a/patches/em-client/0002-Fix-CardDAV-sync-collection-compatibility-with-eM-Cl.patch b/patches/em-client/0002-Fix-CardDAV-sync-collection-compatibility-with-eM-Cl.patch
+new file mode 100644
+index 000000000..9dc401b65
+--- /dev/null
++++ b/patches/em-client/0002-Fix-CardDAV-sync-collection-compatibility-with-eM-Cl.patch
+@@ -0,0 +1,90 @@
++From bec62b9807378076b8c04b49051cedf5d9442778 Mon Sep 17 00:00:00 2001
++From: Aaron Guise <aaron@guise.net.nz>
++Date: Sun, 7 Sep 2025 11:26:12 +1200
++Subject: [PATCH 2/2] Fix CardDAV sync-collection compatibility with eM Client
++ and similar clients
++
++Some CardDAV clients like eM Client send sync-collection requests with Depth::Zero
++but expect them to be processed as Depth::One to include child resources.
++
++This changes the default depth handling for sync-collection from 0 to 1 to match
++client expectations while preserving the explicit Depth::One and Depth::Infinity
++behavior.
++
++Also adds a test case that verifies sync-collection works correctly with the
++getetag + getcontenttype property combination that eM Client uses, ensuring
++contacts are returned with their etags for proper synchronization.
++---
++ crates/dav/src/common/mod.rs |  2 +-
++ tests/src/webdav/sync.rs     | 42 ++++++++++++++++++++++++++++++++++++
++ 2 files changed, 43 insertions(+), 1 deletion(-)
++
++diff --git a/crates/dav/src/common/mod.rs b/crates/dav/src/common/mod.rs
++index 385e46cd..04c2d150 100644
++--- a/crates/dav/src/common/mod.rs
+++++ b/crates/dav/src/common/mod.rs
++@@ -268,7 +268,7 @@ impl<'x> DavQuery<'x> {
++             depth: match changes.depth {
++                 Depth::One => 1,
++                 Depth::Infinity => usize::MAX,
++-                _ => 0,
+++                _ => 1, // Default to depth 1 for sync-collection compatibility with clients like eM Client
++             },
++             limit: changes.limit,
++             ret: headers.ret,
++diff --git a/tests/src/webdav/sync.rs b/tests/src/webdav/sync.rs
++index 5a86511e..d8f0412e 100644
++--- a/tests/src/webdav/sync.rs
+++++ b/tests/src/webdav/sync.rs
++@@ -287,6 +287,48 @@ pub async fn test(test: &TestServer) {
++             );
++     }
++ 
+++    // Test eM Client specific issue: sync-collection with getetag + getcontenttype (no address-data)
+++    println!("Running eM Client compatibility test for CardDAV sync-collection...");
+++    let card_base_path = format!("/dav/card/john/");
+++    
+++    // Create a contact first
+++    let contact_path = format!("{card_base_path}test-contact.vcf");
+++    let vcard_content = concat!(
+++        "BEGIN:VCARD\r\n",
+++        "VERSION:4.0\r\n", 
+++        "FN:Test Contact\r\n",
+++        "N:Contact;Test;;;\r\n",
+++        "EMAIL:test@example.com\r\n",
+++        "END:VCARD\r\n"
+++    );
+++    client
+++        .request("PUT", &contact_path, vcard_content)
+++        .await
+++        .with_status(StatusCode::CREATED);
+++
+++    // Test sync-collection with getetag + getcontenttype (like eM Client does)
+++    let response = client
+++        .sync_collection(&card_base_path, "", Depth::One, None, ["D:getetag", "D:getcontenttype"])
+++        .await;
+++    
+++    // This should NOT be empty - it should return the contact with etag and content-type
+++    assert!(response.hrefs().len() >= 1, 
+++        "eM Client fix failed: sync-collection with getetag+getcontenttype returned empty result: {:?}", 
+++        response.hrefs());
+++        
+++    // Verify the contact path is included in results
+++    let hrefs = response.hrefs();
+++    assert!(hrefs.iter().any(|href| href.contains("test-contact.vcf")),
+++        "eM Client fix failed: contact not found in sync-collection results: {:?}", hrefs);
+++    
+++    println!("eM Client CardDAV compatibility test passed!");
+++    
+++    // Clean up
+++    client
+++        .request("DELETE", &contact_path, "")
+++        .await
+++        .with_status(StatusCode::NO_CONTENT);
+++
++     client.delete_default_containers().await;
++     test.assert_is_empty().await;
++ }
++-- 
++2.43.0
++
+-- 
+2.43.0
+

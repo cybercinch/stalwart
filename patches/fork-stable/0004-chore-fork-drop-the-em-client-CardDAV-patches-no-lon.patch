@@ -1,0 +1,241 @@
+From c4a4e808840bab666d622ec830378701e3113ea7 Mon Sep 17 00:00:00 2001
+From: Aaron Guise <aaron@guise.net.nz>
+Date: Thu, 24 Sep 2026 12:56:19 +1200
+Subject: [PATCH 4/5] chore(fork): drop the em-client CardDAV patches, no
+ longer needed
+
+The two CardDAV sync-collection fixes for eM Client are no longer
+required - fixed either upstream or in eM Client itself - confirmed by
+running stock upstream in production with no regression. Genericizes
+the fork tooling (patches dir, check recipe, release tag naming) away
+from em-client-specific naming since the patch stack is no longer
+about CardDAV.
+---
+ Justfile                                      | 10 ++-
+ README.md                                     | 17 ++--
+ ...c-collection-changelog-filtering-bug.patch | 50 -----------
+ ...-collection-compatibility-with-eM-Cl.patch | 90 -------------------
+ 4 files changed, 16 insertions(+), 151 deletions(-)
+ delete mode 100644 patches/em-client/0001-Fix-CardDAV-sync-collection-changelog-filtering-bug.patch
+ delete mode 100644 patches/em-client/0002-Fix-CardDAV-sync-collection-compatibility-with-eM-Cl.patch
+
+diff --git a/Justfile b/Justfile
+index 5df4f5667..f222dc1d1 100644
+--- a/Justfile
++++ b/Justfile
+@@ -3,7 +3,7 @@ set dotenv-load := true
+ upstream_remote := "upstream"
+ main_branch := "main"
+ fork_branch := "fork/stable"
+-patches_dir := "patches/em-client"
++patches_dir := "patches/fork-stable"
+ docker_image := "docker.io/cybercinch/stalwart"
+ dockerfile := "Dockerfile.fast"
+ 
+@@ -37,11 +37,13 @@ rebase ref=`git tag -l 'v0.16.*' | sort -V | tail -1`:
+     git rebase --onto {{ref}} {{upstream_remote}}/main {{fork_branch}}
+     @echo "Rebased {{fork_branch}} onto {{ref}}. Run 'just check' then 'just export-patches'."
+ 
+-# Compile-check the affected crate after a rebase
++# Compile-check the affected crate after a rebase. Update -p when the patch
++# stack's affected crate changes (currently jmap - the Email/get attachments
++# blob-fetch fix).
+ check:
+-    cargo check -p dav
++    cargo check -p jmap
+ 
+-# Export the current patch stack to patches/em-client/*.patch for review/vendoring
++# Export the current patch stack to patches/fork-stable/*.patch for review/vendoring
+ export-patches:
+     mkdir -p {{patches_dir}}
+     rm -f {{patches_dir}}/*.patch
+diff --git a/README.md b/README.md
+index 05d569fd1..2152132ff 100644
+--- a/README.md
++++ b/README.md
+@@ -1,8 +1,9 @@
+ > ## 🍴 About this fork
+ >
+ > This is a fork of [stalwartlabs/stalwart](https://github.com/stalwartlabs/stalwart) that carries a
+-> small set of CardDAV/CalDAV compatibility fixes for **eM Client** that were not accepted upstream.
+-> If you hit the same eM Client sync issues, this branch has you covered.
++> small stack of fixes not (yet, or ever) accepted upstream. It previously carried a set of
++> CardDAV/CalDAV compatibility patches for eM Client; those are no longer needed (fixed either
++> upstream or in eM Client itself) and have been dropped from the stack.
+ >
+ > **Branch layout:**
+ >
+@@ -11,11 +12,13 @@
+ > | [`main`](https://github.com/cybercinch/stalwart/tree/main) | Clean, unmodified mirror of upstream `main`. Never committed to directly — kept as the base for anything intended to be PR'd upstream. |
+ > | [`fork/stable`](https://github.com/cybercinch/stalwart/tree/fork/stable) **(default branch)** | `main` + this fork's patch stack. This is what we build and deploy. |
+ >
+-> **What's patched (`patches/em-client/`):**
+-> - Fix CardDAV sync-collection changelog filtering bug — `None` document IDs were being replaced
+->   with an empty bitmap, silently emptying valid sync results.
+-> - Fix CardDAV sync-collection compatibility with eM Client — eM Client sends `Depth: 0` on
+->   sync-collection requests but expects `Depth: 1` behavior (child resources included).
++> **What's patched (`patches/fork-stable/`):**
++> - Only fetch the raw message blob for `Email/get`'s `attachments` property when the caller's
++>   `bodyProperties` also asks for raw `Header`/`Headers`. The metadata fields a mail client
++>   normally wants (name/type/size/disposition/blobId/etc) already come from the cheap, pre-parsed
++>   part structure - the unconditional raw-blob fetch was doing a full sequential fetch per message
++>   from the blob store for every result, which is expensive on a remote (e.g. S3-compatible)
++>   backend. Not yet submitted upstream / pending a decision on acceptance.
+ >
+ > **Keeping this in sync with upstream:** see the [`Justfile`](./Justfile) — `just sync` fast-forwards
+ > `main` to the latest upstream release tag, rebases `fork/stable` on top, compile-checks, and
+diff --git a/patches/em-client/0001-Fix-CardDAV-sync-collection-changelog-filtering-bug.patch b/patches/em-client/0001-Fix-CardDAV-sync-collection-changelog-filtering-bug.patch
+deleted file mode 100644
+index af890bddb..000000000
+--- a/patches/em-client/0001-Fix-CardDAV-sync-collection-changelog-filtering-bug.patch
++++ /dev/null
+@@ -1,50 +0,0 @@
+-From c8f9caa9f465b5becec2c81b2664dbd1fb053c78 Mon Sep 17 00:00:00 2001
+-From: Aaron Guise <aaron@guise.net.nz>
+-Date: Sun, 7 Sep 2025 11:23:33 +1200
+-Subject: [PATCH 1/2] Fix CardDAV sync-collection changelog filtering bug
+-
+-The sync-collection was replacing None document_ids and display_containers with
+-empty RoaringBitmap, which incorrectly filtered out all results when no changes
+-were found in the current change set.
+-
+-This caused CardDAV sync-collection requests (like those from eM Client) to return
+-empty responses even when there were contacts that should be included, because the
+-empty bitmap would intersect with any subsequent change set and produce no results.
+-
+-Fix: Don't replace None with empty bitmap - preserve full access by only setting
+-Some(changes) when the changes bitmap is not empty.
+----
+- crates/dav/src/common/propfind.rs | 10 ++++++++--
+- 1 file changed, 8 insertions(+), 2 deletions(-)
+-
+-diff --git a/crates/dav/src/common/propfind.rs b/crates/dav/src/common/propfind.rs
+-index 55256514..e5e7ce42 100644
+---- a/crates/dav/src/common/propfind.rs
+-+++ b/crates/dav/src/common/propfind.rs
+-@@ -1258,7 +1258,10 @@ async fn get(
+-                         total_changes += document_ids.len() as usize;
+-                     } else {
+-                         total_changes += changes.len() as usize;
+--                        *document_ids = Some(changes);
+-+                        // Don't replace None with empty bitmap - preserve full access
+-+                        if !changes.is_empty() {
+-+                            *document_ids = Some(changes);
+-+                        }
+-                     }
+-                 }
+-             } else {
+-@@ -1281,7 +1284,10 @@ async fn get(
+-                     total_changes += document_ids.len() as usize;
+-                 } else {
+-                     total_changes += changes.len() as usize;
+--                    display_containers = Some(changes);
+-+                    // Don't replace None with empty bitmap - preserve full access
+-+                    if !changes.is_empty() {
+-+                        display_containers = Some(changes);
+-+                    }
+-                 }
+-             }
+- 
+--- 
+-2.43.0
+-
+diff --git a/patches/em-client/0002-Fix-CardDAV-sync-collection-compatibility-with-eM-Cl.patch b/patches/em-client/0002-Fix-CardDAV-sync-collection-compatibility-with-eM-Cl.patch
+deleted file mode 100644
+index 9dc401b65..000000000
+--- a/patches/em-client/0002-Fix-CardDAV-sync-collection-compatibility-with-eM-Cl.patch
++++ /dev/null
+@@ -1,90 +0,0 @@
+-From bec62b9807378076b8c04b49051cedf5d9442778 Mon Sep 17 00:00:00 2001
+-From: Aaron Guise <aaron@guise.net.nz>
+-Date: Sun, 7 Sep 2025 11:26:12 +1200
+-Subject: [PATCH 2/2] Fix CardDAV sync-collection compatibility with eM Client
+- and similar clients
+-
+-Some CardDAV clients like eM Client send sync-collection requests with Depth::Zero
+-but expect them to be processed as Depth::One to include child resources.
+-
+-This changes the default depth handling for sync-collection from 0 to 1 to match
+-client expectations while preserving the explicit Depth::One and Depth::Infinity
+-behavior.
+-
+-Also adds a test case that verifies sync-collection works correctly with the
+-getetag + getcontenttype property combination that eM Client uses, ensuring
+-contacts are returned with their etags for proper synchronization.
+----
+- crates/dav/src/common/mod.rs |  2 +-
+- tests/src/webdav/sync.rs     | 42 ++++++++++++++++++++++++++++++++++++
+- 2 files changed, 43 insertions(+), 1 deletion(-)
+-
+-diff --git a/crates/dav/src/common/mod.rs b/crates/dav/src/common/mod.rs
+-index 385e46cd..04c2d150 100644
+---- a/crates/dav/src/common/mod.rs
+-+++ b/crates/dav/src/common/mod.rs
+-@@ -268,7 +268,7 @@ impl<'x> DavQuery<'x> {
+-             depth: match changes.depth {
+-                 Depth::One => 1,
+-                 Depth::Infinity => usize::MAX,
+--                _ => 0,
+-+                _ => 1, // Default to depth 1 for sync-collection compatibility with clients like eM Client
+-             },
+-             limit: changes.limit,
+-             ret: headers.ret,
+-diff --git a/tests/src/webdav/sync.rs b/tests/src/webdav/sync.rs
+-index 5a86511e..d8f0412e 100644
+---- a/tests/src/webdav/sync.rs
+-+++ b/tests/src/webdav/sync.rs
+-@@ -287,6 +287,48 @@ pub async fn test(test: &TestServer) {
+-             );
+-     }
+- 
+-+    // Test eM Client specific issue: sync-collection with getetag + getcontenttype (no address-data)
+-+    println!("Running eM Client compatibility test for CardDAV sync-collection...");
+-+    let card_base_path = format!("/dav/card/john/");
+-+    
+-+    // Create a contact first
+-+    let contact_path = format!("{card_base_path}test-contact.vcf");
+-+    let vcard_content = concat!(
+-+        "BEGIN:VCARD\r\n",
+-+        "VERSION:4.0\r\n", 
+-+        "FN:Test Contact\r\n",
+-+        "N:Contact;Test;;;\r\n",
+-+        "EMAIL:test@example.com\r\n",
+-+        "END:VCARD\r\n"
+-+    );
+-+    client
+-+        .request("PUT", &contact_path, vcard_content)
+-+        .await
+-+        .with_status(StatusCode::CREATED);
+-+
+-+    // Test sync-collection with getetag + getcontenttype (like eM Client does)
+-+    let response = client
+-+        .sync_collection(&card_base_path, "", Depth::One, None, ["D:getetag", "D:getcontenttype"])
+-+        .await;
+-+    
+-+    // This should NOT be empty - it should return the contact with etag and content-type
+-+    assert!(response.hrefs().len() >= 1, 
+-+        "eM Client fix failed: sync-collection with getetag+getcontenttype returned empty result: {:?}", 
+-+        response.hrefs());
+-+        
+-+    // Verify the contact path is included in results
+-+    let hrefs = response.hrefs();
+-+    assert!(hrefs.iter().any(|href| href.contains("test-contact.vcf")),
+-+        "eM Client fix failed: contact not found in sync-collection results: {:?}", hrefs);
+-+    
+-+    println!("eM Client CardDAV compatibility test passed!");
+-+    
+-+    // Clean up
+-+    client
+-+        .request("DELETE", &contact_path, "")
+-+        .await
+-+        .with_status(StatusCode::NO_CONTENT);
+-+
+-     client.delete_default_containers().await;
+-     test.assert_is_empty().await;
+- }
+--- 
+-2.43.0
+-
+-- 
+2.43.0
+
