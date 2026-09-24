@@ -3,7 +3,7 @@ set dotenv-load := true
 upstream_remote := "upstream"
 main_branch := "main"
 fork_branch := "fork/stable"
-patches_dir := "patches/em-client"
+patches_dir := "patches/fork-stable"
 docker_image := "docker.io/cybercinch/stalwart"
 dockerfile := "Dockerfile.fast"
 
@@ -37,11 +37,13 @@ rebase ref=`git tag -l 'v0.16.*' | sort -V | tail -1`:
     git rebase --onto {{ref}} {{upstream_remote}}/main {{fork_branch}}
     @echo "Rebased {{fork_branch}} onto {{ref}}. Run 'just check' then 'just export-patches'."
 
-# Compile-check the affected crate after a rebase
+# Compile-check the affected crate after a rebase. Update -p when the patch
+# stack's affected crate changes (currently jmap - the Email/get attachments
+# blob-fetch fix).
 check:
-    cargo check -p dav
+    cargo check -p jmap
 
-# Export the current patch stack to patches/em-client/*.patch for review/vendoring
+# Export the current patch stack to patches/fork-stable/*.patch for review/vendoring
 export-patches:
     mkdir -p {{patches_dir}}
     rm -f {{patches_dir}}/*.patch

@@ -1,8 +1,9 @@
 > ## 🍴 About this fork
 >
 > This is a fork of [stalwartlabs/stalwart](https://github.com/stalwartlabs/stalwart) that carries a
-> small set of CardDAV/CalDAV compatibility fixes for **eM Client** that were not accepted upstream.
-> If you hit the same eM Client sync issues, this branch has you covered.
+> small stack of fixes not (yet, or ever) accepted upstream. It previously carried a set of
+> CardDAV/CalDAV compatibility patches for eM Client; those are no longer needed (fixed either
+> upstream or in eM Client itself) and have been dropped from the stack.
 >
 > **Branch layout:**
 >
@@ -11,11 +12,13 @@
 > | [`main`](https://github.com/cybercinch/stalwart/tree/main) | Clean, unmodified mirror of upstream `main`. Never committed to directly — kept as the base for anything intended to be PR'd upstream. |
 > | [`fork/stable`](https://github.com/cybercinch/stalwart/tree/fork/stable) **(default branch)** | `main` + this fork's patch stack. This is what we build and deploy. |
 >
-> **What's patched (`patches/em-client/`):**
-> - Fix CardDAV sync-collection changelog filtering bug — `None` document IDs were being replaced
->   with an empty bitmap, silently emptying valid sync results.
-> - Fix CardDAV sync-collection compatibility with eM Client — eM Client sends `Depth: 0` on
->   sync-collection requests but expects `Depth: 1` behavior (child resources included).
+> **What's patched (`patches/fork-stable/`):**
+> - Only fetch the raw message blob for `Email/get`'s `attachments` property when the caller's
+>   `bodyProperties` also asks for raw `Header`/`Headers`. The metadata fields a mail client
+>   normally wants (name/type/size/disposition/blobId/etc) already come from the cheap, pre-parsed
+>   part structure - the unconditional raw-blob fetch was doing a full sequential fetch per message
+>   from the blob store for every result, which is expensive on a remote (e.g. S3-compatible)
+>   backend. Not yet submitted upstream / pending a decision on acceptance.
 >
 > **Keeping this in sync with upstream:** see the [`Justfile`](./Justfile) — `just sync` fast-forwards
 > `main` to the latest upstream release tag, rebases `fork/stable` on top, compile-checks, and
